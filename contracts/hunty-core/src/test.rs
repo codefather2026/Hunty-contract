@@ -626,7 +626,7 @@ mod test {
         let list = with_core_contract(&env, |env, _cid| {
             let hid = HuntyCore::create_hunt(env.clone(), creator, title, description, None, None)
                 .unwrap();
-            HuntyCore::list_clues(env.clone(), hid)
+            HuntyCore::list_clues(env.clone(), hid, 0, 10)
         });
 
         assert_eq!(list.len(), 0);
@@ -649,7 +649,7 @@ mod test {
                 .unwrap();
             HuntyCore::add_clue(env.clone(), hid, q1, a.clone(), 1, false).unwrap();
             HuntyCore::add_clue(env.clone(), hid, q2, a, 2, true).unwrap();
-            HuntyCore::list_clues(env.clone(), hid)
+            HuntyCore::list_clues(env.clone(), hid, 0, 10)
         });
 
         assert_eq!(list.len(), 2);
@@ -661,6 +661,42 @@ mod test {
         assert_eq!(c2.points, 2);
         assert!(!c1.is_required);
         assert!(c2.is_required);
+    }
+
+    #[test]
+    fn test_list_clues_pagination() {
+        let env = Env::default();
+        env.ledger().set_timestamp(1_700_000_000);
+        env.mock_all_auths();
+        let creator = Address::generate(&env);
+        let title = String::from_str(&env, "Hunt");
+        let description = String::from_str(&env, "Desc");
+        let q1 = String::from_str(&env, "Q1");
+        let q2 = String::from_str(&env, "Q2");
+        let q3 = String::from_str(&env, "Q3");
+        let a = String::from_str(&env, "a");
+
+        let (list1, list2, list_all) = with_core_contract(&env, |env, _cid| {
+            let hid = HuntyCore::create_hunt(env.clone(), creator, title, description, None, None)
+                .unwrap();
+            HuntyCore::add_clue(env.clone(), hid, q1, a.clone(), 1, false).unwrap();
+            HuntyCore::add_clue(env.clone(), hid, q2, a.clone(), 2, true).unwrap();
+            HuntyCore::add_clue(env.clone(), hid, q3, a, 3, false).unwrap();
+            (
+                HuntyCore::list_clues(env.clone(), hid, 0, 2),
+                HuntyCore::list_clues(env.clone(), hid, 2, 2),
+                HuntyCore::list_clues(env.clone(), hid, 0, 10),
+            )
+        });
+
+        // Validate results
+        assert_eq!(list1.len(), 2);
+        assert_eq!(list2.len(), 1);
+        assert_eq!(list_all.len(), 3);
+        
+        assert_eq!(list1.get(0).unwrap().clue_id, 1);
+        assert_eq!(list1.get(1).unwrap().clue_id, 2);
+        assert_eq!(list2.get(0).unwrap().clue_id, 3);
     }
 
     #[test]

@@ -115,8 +115,8 @@ impl Storage {
     ///
     /// # Returns
     /// A Vec containing all Clue structs for the hunt, in clue_id order
-    pub fn list_clues_for_hunt(env: &Env, hunt_id: u64) -> Vec<Clue> {
-        let clue_ids = Self::get_clue_ids_for_hunt(env, hunt_id);
+    pub fn list_clues_for_hunt(env: &Env, hunt_id: u64, offset: u32, limit: u32) -> Vec<Clue> {
+        let clue_ids = Self::get_clue_ids_for_hunt(env, hunt_id, offset, limit);
         let mut clues = Vec::new(env);
 
         for i in 0..clue_ids.len() {
@@ -275,11 +275,16 @@ impl Storage {
     }
 
     /// Retrieves all clue IDs for a hunt by reading individual entries.
-    fn get_clue_ids_for_hunt(env: &Env, hunt_id: u64) -> Vec<u32> {
+    fn get_clue_ids_for_hunt(env: &Env, hunt_id: u64, offset: u32, limit: u32) -> Vec<u32> {
         let count_key = Self::clue_list_count_key(hunt_id);
         let count: u32 = env.storage().instance().get(&count_key).unwrap_or(0);
         let mut ids = Vec::new(env);
-        for i in 0..count {
+        let start = offset;
+        let end = core::cmp::min(offset.saturating_add(limit), count);
+        if start >= count {
+            return ids;
+        }
+        for i in start..end {
             let entry_key = Self::clue_entry_key(hunt_id, i);
             if let Some(id) = env.storage().instance().get(&entry_key) {
                 ids.push_back(id);
