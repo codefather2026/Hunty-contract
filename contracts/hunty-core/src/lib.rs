@@ -1190,58 +1190,56 @@ impl HuntyCore {
         }
     }
 
-    /// Returns the top N players by score for a hunt (read-only).
+    /// Returns ranked players for a hunt with pagination support (read-only).
     /// Sorted by score descending, then by completion time ascending (earlier = better).
-    /// Limit is capped at 20 to control gas. Returns error if hunt does not exist.
+    /// `offset` skips that many top-ranked entries; `limit` is capped at MAX_LEADERBOARD_SIZE.
+    /// Returned `rank` values are absolute (offset+1, offset+2, …).
+    /// Returns error if hunt does not exist.
     pub fn get_hunt_leaderboard(
         env: Env,
         hunt_id: u64,
         limit: u32,
+        offset: u32,
     ) -> Result<Vec<LeaderboardEntry>, HuntErrorCode> {
         let _ = Storage::get_hunt(&env, hunt_id).ok_or(HuntErrorCode::HuntNotFound)?;
         let effective_limit = core::cmp::min(limit, MAX_LEADERBOARD_SIZE);
         let queried_at = env.ledger().timestamp();
         let players = Storage::get_hunt_players(&env, hunt_id);
         let scan_limit = core::cmp::min(players.len(), MAX_LEADERBOARD_SCAN_SIZE);
-
-        // Single linear top-k pass. We keep at most `effective_limit` entries in
-        // `top` at all times, ordered best-first. For each player we find the
-        // insertion point against the current top-k and splice them in, dropping
-        // anything past the limit. This is O(scan_limit * effective_limit) with
-        // effective_limit <= 20, replacing the previous O(effective_limit *
-        // scan_limit) repeated-selection scan and its inner `selected` lookup.
-        // Allocation is bounded to the k-sized result vector.
-        let mut top: Vec<(Address, u32, u64, bool)> = Vec::new(&env);
-        if effective_limit > 0 {
-            for i in 0..scan_limit {
-                let p = players.get(i).unwrap();
-                let candidate = (p.player.clone(), p.total_score, p.completed_at, p.is_completed);
-
-                // Find the first position whose occupant is worse than the
-                // candidate; that is where the candidate belongs.
-                let len = top.len();
-                let mut pos = len;
-                let mut j = 0;
-                while j < len {
-                    let existing = top.get(j).unwrap();
-                    if Self::leaderboard_is_better(&candidate, &existing) {
-                        pos = j;
-                        break;
-                    }
-                    j += 1;
-                }
-
-                // If the board is already full and the candidate is no better
-                // than the last entry, skip it entirely.
-                if pos >= effective_limit {
-                    continue;
-                }
-
-                top.insert(pos, candidate);
-                // Trim anything beyond the limit (at most one element).
-                if top.len() > effective_limit {
-                    top.remove(top.len() - 1);
-                }
+        let mut entries = Vec::new(&env);
+        for i in 0..scan_limit {
+            let p = players.get(i).unwrap();
+            entries.push_back((
+                p.player.clone(),
+                p.total_score,
+                p.completed_at,
+                p.is_completed,
+            ));
+        }
+        let mut selected = Vec::new(&env);
+        // Skip `offset` top-ranked entries
+        for _ in 0..offset {
+            if let Some(best_idx) = Self::leaderboard_best_index(&entries, &selected) {
+                selected.push_back(best_idx);
+            } else {
+                break;
+            }
+        }
+        let mut result = Vec::new(&env);
+        for rank_offset in 1..=effective_limit {
+            if let Some(best_idx) = Self::leaderboard_best_index(&entries, &selected) {
+                selected.push_back(best_idx);
+                let (player, score, completed_at, is_completed) = entries.get(best_idx).unwrap();
+                result.push_back(LeaderboardEntry {
+                    rank: offset + rank_offset,
+                    player,
+                    score,
+                    completed_at,
+                    is_completed,
+                    queried_at,
+                });
+            } else {
+                break;
             }
         }
 
