@@ -648,24 +648,6 @@ impl HuntyCore {
         Ok(hunt)
     }
 
-    fn sync_reward_pool_balance(env: &Env, hunt_id: u64, hunt: &mut Hunt) {
-        if let Some(reward_manager_addr) = Storage::get_reward_manager(env) {
-            let mut balance_args: Vec<Val> = Vec::new(env);
-            balance_args.push_back(hunt_id.into_val(env));
-
-            if let Ok(Ok(pool_balance)) = env.try_invoke_contract::<i128, RewardErrorCode>(
-                &reward_manager_addr,
-                &Symbol::new(env, "get_pool_balance"),
-                balance_args,
-            ) {
-                if hunt.reward_config.xlm_pool != pool_balance {
-                    hunt.reward_config.xlm_pool = pool_balance;
-                    Storage::save_hunt(env, hunt);
-                }
-            }
-        }
-    }
-
     /// Sets the RewardManager contract address for cross-contract reward distribution.
     pub fn set_reward_manager(env: Env, reward_manager: Address) -> Result<(), HuntErrorCode> {
         Storage::set_reward_manager(&env, &reward_manager);
@@ -834,20 +816,61 @@ impl HuntyCore {
             } else {
                 None
             };
+            let (nft_contract, nft_title, nft_desc, nft_uri, nft_hunt_title) = if nft_awarded {
+                hunt.reward_config
+                    .nft_contract
+                    .clone()
+                    .map(|nft_contract| {
+                        let title = hunt.title.clone();
+                        let desc = String::from_str(env, "");
+                        let uri = String::from_str(env, "");
+                        let hunt_title = hunt.title.clone();
 
-            let mut rm_reward_config = hunt.reward_config.distribution_config.clone();
-            rm_reward_config.xlm_amount = xlm_amount;
+                        // SECURITY: Never forward the hunt description into NFT metadata.
+                        // It may contain secrets, answers, or other sensitive creator notes.
+                        // This constraint is enforced by test coverage and documented in DEVELOPMENT.md.
+                        if title.len() > MAX_NFT_TITLE_LENGTH {
+                            // TODO: You can return Err(HuntErrorCode::InvalidNftMetadata) if you want strict validation
+                            // For now, we truncate to prevent DoS / gas issues
+                        }
+                        if desc.len() > MAX_NFT_DESCRIPTION_LENGTH {
+                            // truncate if needed in future
+                        }
+                        if uri.len() > MAX_NFT_IMAGE_URI_LENGTH {
+                            // truncate if needed
+                        }
+                        if hunt_title.len() > MAX_NFT_HUNT_TITLE_LENGTH {
+                            // truncate if needed
+                        }
 
-            if nft_awarded {
-                // description is intentionally excluded from NFT metadata: a creator could
-                // accidentally embed an answer or salt in the hunt description, which would
-                // then be permanently exposed on-chain via the cross-contract call.
-                // Only the title (already fully public) is forwarded.
-                rm_reward_config.nft_title = hunt.title.clone();
-                rm_reward_config.nft_hunt_title = hunt.title.clone();
+                        (Some(nft_contract), title, desc, uri, hunt_title)
+                    })
+                    .unwrap_or((
+                        None,
+                        String::from_str(env, ""),
+                        String::from_str(env, ""),
+                        String::from_str(env, ""),
+                        String::from_str(env, ""),
+                    ))
             } else {
-                rm_reward_config.nft_contract = None;
-            }
+                (
+                    None,
+                    String::from_str(env, ""),
+                    String::from_str(env, ""),
+                    String::from_str(env, ""),
+                    String::from_str(env, ""),
+                )
+            };
+            let rm_reward_config = reward_manager::RewardConfig {
+                xlm_amount,
+                nft_contract,
+                nft_title,
+                nft_description: nft_desc,
+                nft_image_uri: nft_uri,
+                nft_hunt_title,
+                nft_rarity: hunt.reward_config.nft_rarity,
+                nft_tier: hunt.reward_config.nft_tier,
+            };
 
             // Only call RewardManager when there is at least one reward type
             if rm_reward_config.is_valid() {

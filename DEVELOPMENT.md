@@ -158,6 +158,12 @@ ls -lh target/wasm32-unknown-unknown/release/*.wasm
 - `submit_answer()` - Submit and verify answer
 - `complete_hunt()` - Mark hunt complete
 
+## Security Notes
+
+- Never forward `Hunt.description` into NFT metadata during reward distribution.
+- The cross-contract NFT path must only pass public hunt fields such as title and pre-approved metadata.
+- Keep this rule covered by tests, because the code comment alone is advisory and can be missed during refactors.
+
 ### RewardManager Contract
 
 **File Structure:**
@@ -468,5 +474,4 @@ stellar contract invoke \
 - Check [ARCHITECTURE.md](ARCHITECTURE.md) for system design
 - Review [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines
 - Open an issue on GitHub for questions
-
 
