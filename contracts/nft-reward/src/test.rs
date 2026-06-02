@@ -438,3 +438,10 @@ fn test_get_nft_owner_matches_owner_of() {
     assert_eq!(client.owner_of(&nft_id), client.get_nft_owner(&nft_id));
     assert_eq!(client.get_nft_owner(&nft_id), Some(player));
 }
+
+#[test]
+fn test_contract_version() {
+    let env = setup_env();
+    let client = NftRewardClient::new(&env, &env.register_contract(None, NftReward));
+    assert_eq!(client.contract_version(), 1);
+}

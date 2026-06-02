@@ -2724,4 +2724,9 @@ mod test {
         });
         assert_eq!(result, Err(HuntErrorCode::InvalidHuntStatus));
     }
+
+    #[test]
+    fn test_contract_version() {
+        assert_eq!(HuntyCore::contract_version(), 1);
+    }
 }

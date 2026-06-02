@@ -286,6 +286,11 @@ impl NftReward {
     ) -> Result<(), crate::errors::NftErrorCode> {
         Err(crate::errors::NftErrorCode::SoulboundNft)
     }
+
+    /// Returns the contract version.
+    pub fn contract_version() -> u32 {
+        1
+    }
 }
 
 #[cfg(test)]

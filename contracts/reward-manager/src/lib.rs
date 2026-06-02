@@ -515,6 +515,11 @@ impl RewardManager {
 
         Ok(())
     }
+
+    /// Returns the contract version.
+    pub fn contract_version() -> u32 {
+        1
+    }
 }
 
 pub mod errors;
