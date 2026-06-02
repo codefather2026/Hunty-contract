@@ -1430,6 +1430,40 @@ mod test {
     }
 
     #[test]
+    fn test_submit_answer_hunt_ended() {
+        let env = Env::default();
+        env.ledger().set_timestamp(1_700_000_000);
+        env.mock_all_auths();
+
+        let creator = Address::generate(&env);
+        let player = Address::generate(&env);
+        let question = String::from_str(&env, "Q");
+        let answer = String::from_str(&env, "a");
+        let end_time = 1_700_000_001; // One second after "now"
+
+        let err = with_core_contract(&env, |env, _cid| {
+            let hunt_id = HuntyCore::create_hunt(
+                env.clone(),
+                creator.clone(),
+                String::from_str(env, "Hunt"),
+                String::from_str(env, "Desc"),
+                None,
+                Some(end_time),
+            )
+            .unwrap();
+            HuntyCore::add_clue(env.clone(), hunt_id, question, answer.clone(), 1, true).unwrap();
+            HuntyCore::activate_hunt(env.clone(), hunt_id, creator.clone()).unwrap();
+            HuntyCore::register_player(env.clone(), hunt_id, player.clone()).unwrap();
+            // Move time past end_time
+            env.ledger().set_timestamp(1_700_000_002);
+            env.mock_all_auths();
+            HuntyCore::submit_answer(env.clone(), hunt_id, 1, player.clone(), answer.clone()).unwrap_err()
+        });
+
+        assert_eq!(err, HuntErrorCode::HuntNotActive);
+    }
+
+    #[test]
     fn test_register_player_multiple_players_same_hunt() {
         let env = Env::default();
         env.ledger().set_timestamp(1_700_000_000);
