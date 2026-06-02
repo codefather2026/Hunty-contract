@@ -1675,6 +1675,62 @@ mod test {
     }
 
     #[test]
+    fn test_submit_answer_clue_already_completed_does_not_double_count_score() {
+        let env = Env::default();
+        env.ledger().set_timestamp(1_700_000_000);
+
+        let creator = Address::generate(&env);
+        let player = Address::generate(&env);
+        let question = String::from_str(&env, "Q");
+        let answer = String::from_str(&env, "a");
+
+        let contract_id = env.register_contract(None, HuntyCore);
+        let hunt_id = as_core_contract(&env, &contract_id, |env| {
+            HuntyCore::create_hunt(
+                env.clone(),
+                creator.clone(),
+                String::from_str(env, "Hunt"),
+                String::from_str(env, "Desc"),
+                None,
+                None,
+            )
+            .unwrap()
+        });
+
+        env.mock_all_auths();
+        as_core_contract(&env, &contract_id, |env| {
+            HuntyCore::add_clue(env.clone(), hunt_id, question, answer.clone(), 10, true).unwrap();
+            HuntyCore::activate_hunt(env.clone(), hunt_id, creator.clone()).unwrap();
+        });
+
+        env.mock_all_auths();
+        as_core_contract(&env, &contract_id, |env| {
+            HuntyCore::register_player(env.clone(), hunt_id, player.clone()).unwrap();
+        });
+
+        env.mock_all_auths();
+        as_core_contract(&env, &contract_id, |env| {
+            HuntyCore::submit_answer(env.clone(), hunt_id, 1, player.clone(), answer.clone())
+                .unwrap();
+        });
+
+        env.mock_all_auths();
+        let err = as_core_contract(&env, &contract_id, |env| {
+            HuntyCore::submit_answer(env.clone(), hunt_id, 1, player.clone(), answer.clone())
+                .unwrap_err()
+        });
+
+        assert_eq!(err, HuntErrorCode::ClueAlreadyCompleted);
+
+        let progress = as_core_contract(&env, &contract_id, |env| {
+            HuntyCore::get_player_progress(env.clone(), hunt_id, player.clone()).unwrap()
+        });
+
+        assert_eq!(progress.completed_clues.len(), 1);
+        assert_eq!(progress.total_score, 10);
+    }
+
+    #[test]
     fn test_get_hunt_leaderboard_hunt_not_found() {
         let env = Env::default();
         env.ledger().set_timestamp(1_700_000_000);
