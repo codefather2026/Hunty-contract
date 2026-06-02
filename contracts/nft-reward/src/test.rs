@@ -492,3 +492,57 @@ fn test_burn_fails_for_nonexistent_nft() {
     let result = client.try_burn(&999u64, &owner);
     assert!(result.is_err());
 }
+
+#[test]
+fn test_mint_reward_nft_from_map_with_missing_keys_uses_defaults() {
+    let env = setup_env();
+    let client = NftRewardClient::new(&env, &env.register_contract(None, NftReward));
+
+    let player = Address::generate(&env);
+    let mut metadata: Map<Symbol, Val> = Map::new(&env);
+    // Only provide title, omit all other keys
+    metadata.set(Symbol::new(&env, "title"), String::from_str(&env, "Test NFT").into_val(&env));
+
+    let nft_id = client.mint_reward_nft_from_map(&1, &player, &metadata);
+
+    let nft = client.get_nft(&nft_id).unwrap();
+    assert_eq!(nft.metadata.title, String::from_str(&env, "Test NFT"));
+    assert_eq!(nft.metadata.description, String::from_str(&env, "")); // default
+    assert_eq!(nft.metadata.image_uri, String::from_str(&env, "")); // default
+    assert_eq!(nft.metadata.hunt_title, String::from_str(&env, "Test NFT")); // defaults to title
+    assert_eq!(nft.metadata.rarity, 0u32); // default
+    assert_eq!(nft.metadata.tier, 0u32); // default
+    assert_eq!(nft.transferable, false); // default
+}
+
+#[test]
+fn test_mint_reward_nft_from_map_with_invalid_types_uses_defaults() {
+    let env = setup_env();
+    let client = NftRewardClient::new(&env, &env.register_contract(None, NftReward));
+
+    let player = Address::generate(&env);
+    let mut metadata: Map<Symbol, Val> = Map::new(&env);
+    
+    // Provide valid title
+    metadata.set(Symbol::new(&env, "title"), String::from_str(&env, "Valid Title").into_val(&env));
+    
+    // Provide invalid types for other fields (wrong type conversions will fail and use defaults)
+    metadata.set(Symbol::new(&env, "description"), 123456u32.into_val(&env)); // u32 instead of String
+    metadata.set(Symbol::new(&env, "image_uri"), true.into_val(&env)); // bool instead of String
+    metadata.set(Symbol::new(&env, "hunt_title"), 999u32.into_val(&env)); // u32 instead of String
+    metadata.set(Symbol::new(&env, "rarity"), String::from_str(&env, "invalid").into_val(&env)); // String instead of u32
+    metadata.set(Symbol::new(&env, "tier"), String::from_str(&env, "invalid").into_val(&env)); // String instead of u32
+    metadata.set(Symbol::new(&env, "transferable"), 123u32.into_val(&env)); // u32 instead of bool
+
+    // This should not panic; invalid types should use defaults
+    let nft_id = client.mint_reward_nft_from_map(&1, &player, &metadata);
+
+    let nft = client.get_nft(&nft_id).unwrap();
+    assert_eq!(nft.metadata.title, String::from_str(&env, "Valid Title"));
+    assert_eq!(nft.metadata.description, String::from_str(&env, "")); // default due to invalid type
+    assert_eq!(nft.metadata.image_uri, String::from_str(&env, "")); // default due to invalid type
+    assert_eq!(nft.metadata.hunt_title, String::from_str(&env, "Valid Title")); // defaults to title
+    assert_eq!(nft.metadata.rarity, 0u32); // default due to invalid type
+    assert_eq!(nft.metadata.tier, 0u32); // default due to invalid type
+    assert_eq!(nft.transferable, false); // default due to invalid type
+}
