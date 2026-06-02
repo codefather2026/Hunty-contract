@@ -223,10 +223,7 @@ impl HuntyCore {
         };
         Storage::save_clue(&env, hunt_id, &clue);
         let mut updated = hunt;
-        updated.total_clues += 1;
-        if is_required {
-            updated.required_clues += 1;
-        }
+        Self::sync_hunt_clue_counts(&env, hunt_id, &mut updated);
         Storage::save_hunt(&env, &updated);
         let event = ClueAddedEvent {
             hunt_id,
@@ -268,8 +265,10 @@ impl HuntyCore {
         }
         hunt.creator.require_auth();
 
-        let mut clue =
-            Storage::get_clue_or_error(&env, hunt_id, clue_id).map_err(HuntErrorCode::from)?;
+        Storage::get_clue_or_error(&env, hunt_id, clue_id).map_err(HuntErrorCode::from)?;
+        Storage::remove_clue(&env, hunt_id, clue_id);
+        Self::sync_hunt_clue_counts(&env, hunt_id, &mut hunt);
+        Storage::save_hunt(&env, &hunt);
 
         for i in 0..answers.len() {
             let answer = answers.get(i).unwrap();
@@ -379,6 +378,7 @@ impl HuntyCore {
 
     pub fn activate_hunt(env: Env, hunt_id: u64, caller: Address) -> Result<(), HuntErrorCode> {
         let mut hunt = Storage::get_hunt(&env, hunt_id).ok_or(HuntErrorCode::HuntNotFound)?;
+        Self::sync_hunt_clue_counts(&env, hunt_id, &mut hunt);
 
         // Verify caller is the creator
 
@@ -513,8 +513,31 @@ impl HuntyCore {
     }
 
     pub fn get_hunt_info(env: Env, hunt_id: u64) -> Result<Hunt, HuntErrorCode> {
-        let hunt = Storage::get_hunt(&env, hunt_id).ok_or(HuntErrorCode::HuntNotFound)?;
+        let mut hunt = Storage::get_hunt(&env, hunt_id).ok_or(HuntErrorCode::HuntNotFound)?;
+        Self::sync_hunt_clue_counts(&env, hunt_id, &mut hunt);
+
+        match hunt.status {
+            HuntStatus::Draft
+            | HuntStatus::Active
+            | HuntStatus::Completed
+            | HuntStatus::Cancelled => {}
+        }
+
+        // Return the full Hunt struct
         Ok(hunt)
+    }
+
+    fn sync_hunt_clue_counts(env: &Env, hunt_id: u64, hunt: &mut Hunt) {
+        hunt.total_clues = Storage::get_clue_counter(env, hunt_id);
+
+        let clues = Storage::list_clues_for_hunt(env, hunt_id);
+        let mut required_clues = 0;
+        for i in 0..clues.len() {
+            if clues.get(i).unwrap().is_required {
+                required_clues += 1;
+            }
+        }
+        hunt.required_clues = required_clues;
     }
 
     /// Sets the RewardManager contract address for cross-contract reward distribution.
