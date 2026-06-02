@@ -4,10 +4,10 @@ use alloc::string::String as StdString;
 use crate::errors::{HuntError, HuntErrorCode};
 use crate::storage::Storage;
 use crate::types::{
-    AnswerIncorrectEvent, Clue, ClueAddedEvent, ClueAliasesAddedEvent, ClueCompletedEvent,
-    ClueInfo, Hunt, HuntActivatedEvent, HuntCancelledEvent, HuntCompletedEvent,
-    HuntCreatedEvent, HuntDeactivatedEvent, HuntStatistics, HuntStatus, LeaderboardEntry,
-    PlayerProgress, PlayerRegisteredEvent, RewardClaimedEvent, RewardConfig,
+    AnswerIncorrectEvent, Clue, ClueAddedEvent, ClueCompletedEvent, ClueInfo, Hunt,
+    HuntActivatedEvent, HuntCancelledEvent, HuntCompletedEvent, HuntCreatedEvent,
+    HuntDeactivatedEvent, HuntStatistics, HuntStatus, LeaderboardEntry, PlayerProgress,
+    PlayerRegisteredEvent, RewardClaimedEvent, RewardConfig, RewardManagerSetEvent,
 };
 use reward_manager::RewardErrorCode;
 use soroban_sdk::{
@@ -505,15 +505,15 @@ impl HuntyCore {
     }
 
     /// Sets the RewardManager contract address for cross-contract reward distribution.
-    ///
-    /// Access control: only the admin (or contract invoker) is allowed to set this.
-    pub fn set_reward_manager(env: Env, reward_manager: Address) -> Result<(), HuntErrorCode> {
-        // Require invoker authorization.
-        // (This is the auth gate that was missing before.)
-        // env.invoker().require_auth();
-
+    pub fn set_reward_manager(env: Env, reward_manager: Address) {
+        let old_address = Storage::get_reward_manager(&env);
         Storage::set_reward_manager(&env, &reward_manager);
-        Ok(())
+        let event = RewardManagerSetEvent {
+            old_address,
+            new_address: reward_manager.clone(),
+        };
+        env.events()
+            .publish((Symbol::new(&env, "RewardManagerSet"),), event);
     }
 
 
