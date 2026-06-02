@@ -16,16 +16,12 @@ pub enum HuntStatus {
 
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RewardConfig {
+pub struct HuntRewardConfig {
     pub xlm_pool: i128,
-    pub nft_enabled: bool,
-    pub nft_contract: Option<Address>,
     pub max_winners: u32,
     pub claimed_count: u32,
-    /// NFT rarity: 0 = default, 1-5 = common to legendary.
-    pub nft_rarity: u32,
-    /// NFT tier: 0 = none, custom tier value.
-    pub nft_tier: u32,
+    pub nft_enabled: bool,
+    pub distribution_config: reward_manager::RewardConfig,
 }
 
 #[contracttype]
@@ -40,7 +36,7 @@ pub struct Hunt {
     pub activated_at: u64,
     pub start_time: u64,
     pub end_time: u64,
-    pub reward_config: RewardConfig,
+    pub reward_config: HuntRewardConfig,
     pub total_clues: u32,
     pub required_clues: u32,
     pub max_attempts_per_clue: u32,
@@ -235,8 +231,9 @@ impl Hunt {
     }
 }
 
-impl RewardConfig {
+impl HuntRewardConfig {
     pub fn new(
+        env: &Env,
         xlm_pool: i128,
         nft_enabled: bool,
         nft_contract: Option<Address>,
@@ -246,12 +243,19 @@ impl RewardConfig {
     ) -> Self {
         Self {
             xlm_pool,
-            nft_enabled,
-            nft_contract,
             max_winners,
             claimed_count: 0,
-            nft_rarity,
-            nft_tier,
+            nft_enabled,
+            distribution_config: reward_manager::RewardConfig {
+                xlm_amount: None,
+                nft_contract,
+                nft_title: String::from_str(env, ""),
+                nft_description: String::from_str(env, ""),
+                nft_image_uri: String::from_str(env, ""),
+                nft_hunt_title: String::from_str(env, ""),
+                nft_rarity,
+                nft_tier,
+            },
         }
     }
 
