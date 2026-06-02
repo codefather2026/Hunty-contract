@@ -6,7 +6,6 @@ use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger as _},
     Address, Env, IntoVal, Map, String, Symbol, Val,
 };
-
 fn setup_env() -> Env {
     let env = Env::default();
     env.mock_all_auths();
