@@ -470,6 +470,33 @@ impl HuntyCore {
         let mut progress = Storage::get_player_progress_or_error(env, hunt_id, &player)
             .map_err(HuntErrorCode::from)?;
 
+                /// Generates a completion certificate for a player who has finished a hunt.
+    pub fn generate_completion_certificate(
+        env: Env,
+        hunt_id: u64,
+        player: Address,
+    ) -> Result<String, HuntErrorCode> {
+        let progress = Storage::get_player_progress(&env, hunt_id, &player)
+            .ok_or(HuntErrorCode::PlayerNotRegistered)?;
+
+        if !progress.is_completed {
+            return Err(HuntErrorCode::HuntNotCompleted);
+        }
+
+        let hunt = Storage::get_hunt(&env, hunt_id)
+            .ok_or(HuntErrorCode::HuntNotFound)?;
+
+        let certificate = String::from_str(
+            &env,
+            "COMPLETION_CERTIFICATE",
+        );
+
+        let _ = hunt;
+        let _ = progress;
+
+        Ok(certificate)
+    }
+
         // Verify the player has completed all required clues
         if !progress.is_completed {
             return Err(HuntErrorCode::HuntNotCompleted);
