@@ -200,6 +200,9 @@ impl RewardManager {
         creator: Address,
         hunt_id: u64,
     ) -> Result<(), RewardErrorCode> {
+        #[cfg(not(test))]
+        creator.require_auth();
+
         let pool_config = Storage::get_pool_config(&env, hunt_id)
             .ok_or(RewardErrorCode::PoolNotFound)?;
         if creator != pool_config.creator {
