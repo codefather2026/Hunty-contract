@@ -1,7 +1,7 @@
 #![cfg_attr(not(test), no_std)]
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, Address, Env, Map, String, Symbol, Val,
-    Vec,
+    contract, contractimpl, contracttype, panic_with_error, Address, Env, Map, String, Symbol,
+    Val, Vec,
 };
 
 /// Core display metadata for an NFT (title, description, image URI).
@@ -106,57 +106,14 @@ pub struct NftReward;
 
 #[contractimpl]
 impl NftReward {
-    /// One-time setup: stores the admin, registers the first authorized minter, and
-    /// optionally caps total supply.  Must be called before minting on an initialized
-    /// contract; subsequent calls are rejected with `AlreadyInitialized`.
-    pub fn initialize(
-        env: Env,
-        admin: Address,
-        authorized_minter: Address,
-        max_supply: Option<u64>,
-    ) -> Result<(), crate::errors::NftErrorCode> {
+    /// Initializes the NFT reward contract with an optional max supply cap.
+    /// Call this once if you want to enforce a finite NFT supply.
+    pub fn initialize(env: Env, max_supply: Option<u64>) -> Result<(), crate::errors::NftErrorCode> {
         if Storage::is_initialized(&env) {
             return Err(crate::errors::NftErrorCode::AlreadyInitialized);
         }
-        admin.require_auth();
-        Storage::save_admin(&env, &admin);
-        Storage::add_minter(&env, &authorized_minter);
-        Storage::save_max_supply(&env, max_supply);
-        Ok(())
-    }
 
-    /// Returns the stored admin address, or `None` if the contract is not yet initialized.
-    pub fn get_admin(env: Env) -> Option<Address> {
-        Storage::get_admin(&env)
-    }
-
-    /// Adds a new address to the minter whitelist.  Admin only.
-    pub fn add_minter(
-        env: Env,
-        admin: Address,
-        new_minter: Address,
-    ) -> Result<(), crate::errors::NftErrorCode> {
-        admin.require_auth();
-        let stored = Storage::get_admin(&env).ok_or(crate::errors::NftErrorCode::Unauthorized)?;
-        if admin != stored {
-            return Err(crate::errors::NftErrorCode::Unauthorized);
-        }
-        Storage::add_minter(&env, &new_minter);
-        Ok(())
-    }
-
-    /// Removes an address from the minter whitelist.  Admin only.
-    pub fn remove_minter(
-        env: Env,
-        admin: Address,
-        minter: Address,
-    ) -> Result<(), crate::errors::NftErrorCode> {
-        admin.require_auth();
-        let stored = Storage::get_admin(&env).ok_or(crate::errors::NftErrorCode::Unauthorized)?;
-        if admin != stored {
-            return Err(crate::errors::NftErrorCode::Unauthorized);
-        }
-        Storage::remove_minter(&env, &minter);
+        Storage::set_max_supply(&env, max_supply);
         Ok(())
     }
 
@@ -181,39 +138,7 @@ impl NftReward {
         player_address: Address,
         metadata: NftMetadata,
     ) -> u64 {
-        if !image_uri_is_valid(&metadata.image_uri) {
-            panic!("Invalid NFT image_uri: must be non-empty and start with https:// or ipfs://");
-        }
-
-        let minted_at = env.ledger().timestamp();
-
-        let nft_id = Storage::next_nft_id(&env);
-
-        let nft_data = NftData {
-            nft_id,
-            hunt_id,
-            owner: player_address.clone(),
-            metadata: metadata.clone(),
-            transferable: false,
-            minted_at,
-        };
-
-        Storage::save_nft(&env, &nft_data);
-        Storage::add_nft_to_owner(&env, &player_address, nft_id);
-
-        let event = NftMintedEvent {
-            nft_id,
-            hunt_id,
-            owner: player_address,
-            rarity: metadata.rarity,
-            tier: metadata.tier,
-            metadata,
-            minted_at,
-        };
-        env.events()
-            .publish((Symbol::new(&env, "NftMinted"), nft_id), event);
-
-        nft_id
+        Self::mint_reward_nft_impl(env, hunt_id, player_address, metadata, false)
     }
 
     /// Mints a reward NFT from a generic metadata map. This is the entrypoint
@@ -307,6 +232,26 @@ impl NftReward {
             creator,
             royalty_bps,
         };
+        Self::mint_reward_nft_impl(env, hunt_id, player_address, meta, transferable)
+    }
+
+    fn mint_reward_nft_impl(
+        env: Env,
+        hunt_id: u64,
+        player_address: Address,
+        metadata: NftMetadata,
+        transferable: bool,
+    ) -> u64 {
+        if metadata.rarity > 5 {
+            panic_with_error!(&env, crate::errors::NftErrorCode::InvalidRarity);
+        }
+
+        if let Some(max_supply) = Storage::get_max_supply(&env) {
+            let current_supply = Storage::get_nft_counter(&env);
+            if current_supply >= max_supply {
+                panic_with_error!(&env, crate::errors::NftErrorCode::MaxSupplyReached);
+            }
+        }
 
         let minted_at = env.ledger().timestamp();
         let nft_id = Storage::next_nft_id(&env);
@@ -315,7 +260,8 @@ impl NftReward {
             nft_id,
             hunt_id,
             owner: player_address.clone(),
-            metadata: meta.clone(),
+            completion_player: player_address.clone(),
+            metadata: metadata.clone(),
             transferable,
             minted_at,
         };
@@ -327,7 +273,7 @@ impl NftReward {
             nft_id,
             hunt_id,
             owner: player_address,
-            metadata: meta,
+            metadata,
             minted_at,
         };
         env.events()

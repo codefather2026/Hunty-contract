@@ -7,10 +7,9 @@ pub struct Storage;
 impl Storage {
     const NFT_KEY: soroban_sdk::Symbol = symbol_short!("NFT");
     const NFT_COUNTER_KEY: soroban_sdk::Symbol = symbol_short!("CNTR");
-    const OWNER_NFTS_KEY: soroban_sdk::Symbol = symbol_short!("ONFT");
-    const ADMIN_KEY: soroban_sdk::Symbol = symbol_short!("ADMIN");
-    const MAX_SUPPLY_KEY: soroban_sdk::Symbol = symbol_short!("MXSUP");
-    const MINTER_KEY: soroban_sdk::Symbol = symbol_short!("MINTER");
+    const OWNER_NFT_COUNT_KEY: soroban_sdk::Symbol = symbol_short!("ONFC");
+    const MAX_SUPPLY_KEY: soroban_sdk::Symbol = symbol_short!("MAXS");
+    const INITIALIZED_KEY: soroban_sdk::Symbol = symbol_short!("INIT");
 
     fn nft_key(nft_id: u64) -> (soroban_sdk::Symbol, u64) {
         (Self::NFT_KEY, nft_id)
@@ -111,6 +110,28 @@ impl Storage {
             .persistent()
             .get(&Self::NFT_COUNTER_KEY)
             .unwrap_or(0)
+    }
+
+    /// Marks the contract initialized and stores the optional max supply cap.
+    pub fn set_max_supply(env: &Env, max_supply: Option<u64>) {
+        env.storage().persistent().set(&Self::MAX_SUPPLY_KEY, &max_supply);
+        env.storage().persistent().set(&Self::INITIALIZED_KEY, &true);
+    }
+
+    /// Returns the configured max supply cap, if one has been stored.
+    pub fn get_max_supply(env: &Env) -> Option<u64> {
+        env.storage()
+            .persistent()
+            .get(&Self::MAX_SUPPLY_KEY)
+            .unwrap_or(None)
+    }
+
+    /// Returns whether the contract has been initialized.
+    pub fn is_initialized(env: &Env) -> bool {
+        env.storage()
+            .persistent()
+            .get(&Self::INITIALIZED_KEY)
+            .unwrap_or(false)
     }
 
     /// Adds an NFT ID to the owner's index.
