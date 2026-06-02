@@ -19,6 +19,8 @@ impl Storage {
     const HUNT_COUNTER_KEY: soroban_sdk::Symbol = symbol_short!("CNTR");
     const CLUE_COUNTER_KEY: soroban_sdk::Symbol = symbol_short!("CCNT");
     const REWARD_MGR_KEY: soroban_sdk::Symbol = symbol_short!("RWDMGR");
+    const ADMIN_KEY: soroban_sdk::Symbol = symbol_short!("ADMIN");
+    const PAUSED_KEY: soroban_sdk::Symbol = symbol_short!("PAUSED");
 
     // ========== Hunt Storage Functions ==========
 
@@ -391,5 +393,26 @@ impl Storage {
 
     pub fn get_reward_manager(env: &Env) -> Option<Address> {
         env.storage().instance().get(&Self::REWARD_MGR_KEY)
+    }
+
+    // ========== Contract Admin / Pause Storage Functions ==========
+
+    pub fn set_admin(env: &Env, admin: &Address) {
+        env.storage().instance().set(&Self::ADMIN_KEY, admin);
+    }
+
+    pub fn get_admin(env: &Env) -> Option<Address> {
+        env.storage().instance().get(&Self::ADMIN_KEY)
+    }
+
+    pub fn set_contract_paused(env: &Env, paused: bool) {
+        env.storage().instance().set(&Self::PAUSED_KEY, &paused);
+    }
+
+    pub fn is_contract_paused(env: &Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&Self::PAUSED_KEY)
+            .unwrap_or(false)
     }
 }
