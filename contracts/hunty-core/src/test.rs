@@ -407,7 +407,7 @@ mod test {
         // Verify default reward config values
         assert_eq!(reward_config.xlm_pool, 0);
         assert_eq!(reward_config.nft_enabled, false);
-        assert_eq!(reward_config.nft_contract, None);
+        assert_eq!(reward_config.distribution_config.nft_contract, None);
         assert_eq!(reward_config.max_winners, 0);
         assert_eq!(reward_config.claimed_count, 0);
     }
@@ -2097,7 +2097,8 @@ mod test {
 
             // Update reward config on the hunt
             let mut hunt = Storage::get_hunt(env, hunt_id).unwrap();
-            hunt.reward_config = crate::types::RewardConfig::new(
+            hunt.reward_config = crate::types::HuntRewardConfig::new(
+                env,
                 xlm_pool,
                 false,
                 None,
@@ -2180,7 +2181,8 @@ mod test {
 
             // Configure rewards on the hunt: 3 winners sharing 9_000 XLM
             let mut hunt = Storage::get_hunt(env, hunt_id).unwrap();
-            hunt.reward_config = crate::types::RewardConfig::new(
+            hunt.reward_config = crate::types::HuntRewardConfig::new(
+                env,
                 9_000,
                 true,
                 Some(nft_contract_id.clone()),
@@ -2369,7 +2371,8 @@ mod test {
 
             // Configure rewards: xlm_pool = 6_000, max_winners = 3
             let mut hunt = Storage::get_hunt(env, hunt_id).unwrap();
-            hunt.reward_config = crate::types::RewardConfig::new(
+            hunt.reward_config = crate::types::HuntRewardConfig::new(
+                env,
                 6_000,
                 true,
                 Some(nft_contract_id.clone()),
@@ -2517,7 +2520,7 @@ mod test {
             .unwrap();
 
             let mut hunt = Storage::get_hunt(env, hid).unwrap();
-            hunt.reward_config = crate::types::RewardConfig::new(1000, false, None, 10, 0, 0);
+            hunt.reward_config = crate::types::HuntRewardConfig::new(env, 1000, false, None, 10, 0, 0);
             Storage::save_hunt(env, &hunt);
 
             HuntyCore::activate_hunt(env.clone(), hid, creator.clone()).unwrap();
@@ -2604,8 +2607,7 @@ mod test {
             .unwrap();
 
             let mut hunt = Storage::get_hunt(env, hunt_id).unwrap();
-            hunt.reward_config =
-                crate::types::RewardConfig::new(1000, false, None, 5, 0, 0);
+            hunt.reward_config = crate::types::HuntRewardConfig::new(env, 1000, false, None, 5, 0, 0);
             Storage::save_hunt(env, &hunt);
 
             HuntyCore::activate_hunt(env.clone(), hunt_id, creator.clone()).unwrap();

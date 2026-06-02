@@ -4,8 +4,8 @@ use crate::storage::Storage;
 use crate::types::{
     AnswerIncorrectEvent, Clue, ClueAddedEvent, ClueCompletedEvent, ClueInfo, Hunt,
     HuntActivatedEvent, HuntCancelledEvent, HuntCompletedEvent, HuntCreatedEvent,
-    HuntDeactivatedEvent, HuntStatistics, HuntStatus, LeaderboardEntry, PlayerProgress,
-    PlayerRegisteredEvent, RewardClaimedEvent, RewardConfig,
+    HuntDeactivatedEvent, HuntStatistics, HuntStatus, HuntRewardConfig, LeaderboardEntry, PlayerProgress,
+    PlayerRegisteredEvent, RewardClaimedEvent,
 };
 use reward_manager::RewardErrorCode;
 use soroban_sdk::{
@@ -78,7 +78,8 @@ impl HuntyCore {
         let hunt_id = Storage::next_hunt_id(&env);
 
         // Initialize reward config with zero pool
-        let reward_config = RewardConfig::new(
+        let reward_config = HuntRewardConfig::new(
+            &env,
             0,     // xlm_pool: zero initially
             false, // nft_enabled: false initially
             None,  // nft_contract: None initially
@@ -500,49 +501,20 @@ impl HuntyCore {
             } else {
                 None
             };
-            // description is intentionally excluded from NFT metadata: a creator could
-            // accidentally embed an answer or salt in the hunt description, which would
-            // then be permanently exposed on-chain via the cross-contract call.
-            // Only the title (already fully public) is forwarded.
-            let (nft_contract, nft_title, nft_desc, nft_uri, nft_hunt_title) = if nft_awarded {
-                hunt.reward_config
-                    .nft_contract
-                    .clone()
-                    .map(|nft_contract| {
-                        (
-                            Some(nft_contract),
-                            hunt.title.clone(),
-                            String::from_str(env, ""),
-                            String::from_str(env, ""),
-                            hunt.title.clone(),
-                        )
-                    })
-                    .unwrap_or((
-                        None,
-                        String::from_str(env, ""),
-                        String::from_str(env, ""),
-                        String::from_str(env, ""),
-                        String::from_str(env, ""),
-                    ))
+
+            let mut rm_reward_config = hunt.reward_config.distribution_config.clone();
+            rm_reward_config.xlm_amount = xlm_amount;
+
+            if nft_awarded {
+                // description is intentionally excluded from NFT metadata: a creator could
+                // accidentally embed an answer or salt in the hunt description, which would
+                // then be permanently exposed on-chain via the cross-contract call.
+                // Only the title (already fully public) is forwarded.
+                rm_reward_config.nft_title = hunt.title.clone();
+                rm_reward_config.nft_hunt_title = hunt.title.clone();
             } else {
-                (
-                    None,
-                    String::from_str(env, ""),
-                    String::from_str(env, ""),
-                    String::from_str(env, ""),
-                    String::from_str(env, ""),
-                )
-            };
-            let rm_reward_config = reward_manager::RewardConfig {
-                xlm_amount,
-                nft_contract,
-                nft_title,
-                nft_description: nft_desc,
-                nft_image_uri: nft_uri,
-                nft_hunt_title,
-                nft_rarity: hunt.reward_config.nft_rarity,
-                nft_tier: hunt.reward_config.nft_tier,
-            };
+                rm_reward_config.nft_contract = None;
+            }
 
             // Only call RewardManager when there is at least one reward type
             if rm_reward_config.is_valid() {
