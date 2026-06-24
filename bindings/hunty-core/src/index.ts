@@ -246,7 +246,9 @@ export const HuntErrorCode = {
   18: {message:"HuntNotCompleted"},
   19: {message:"RewardAlreadyClaimed"},
   20: {message:"RewardDistributionFailed"},
-  21: {message:"NoRewardsConfigured"}
+  21: {message:"NoRewardsConfigured"},
+  22: {message:"DuplicateSubmission"},
+  23: {message:"SubmissionExpired"}
 }
 
 
@@ -412,6 +414,8 @@ export interface Client {
    * * `clue_id` - The clue ID to answer
    * * `player` - The address of the player submitting the answer
    * * `answer` - The plain-text answer submission
+   * * `submission_nonce` - Caller-chosen unique nonce for this submission envelope
+   * * `submitted_at` - Client timestamp captured when the submission was signed
    * 
    * # Returns
    * `Ok(())` on successful answer verification and progress update
@@ -423,13 +427,15 @@ export interface Client {
    * * `ClueNotFound` - Clue does not exist in this hunt
    * * `ClueAlreadyCompleted` - Player has already completed this clue
    * * `InvalidAnswer` - Submitted answer does not match the stored hash
+   * * `DuplicateSubmission` - Submission nonce/timestamp envelope was already processed
+   * * `SubmissionExpired` - Submission timestamp is too old or too far in the future
    * 
    * # Events
    * * `ClueCompleted` - Emitted when answer is correct
    * * `HuntCompleted` - Emitted when all required clues are completed
    * * `AnswerIncorrect` 
    */
-  submit_answer: ({hunt_id, clue_id, player, answer}: {hunt_id: u64, clue_id: u32, player: string, answer: string}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
+  submit_answer: ({hunt_id, clue_id, player, answer, submission_nonce, submitted_at}: {hunt_id: u64, clue_id: u32, player: string, answer: string, submission_nonce: u64, submitted_at: u64}, options?: MethodOptions) => Promise<AssembledTransaction<Result<void>>>
 
   /**
    * Construct and simulate a deactivate_hunt transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
