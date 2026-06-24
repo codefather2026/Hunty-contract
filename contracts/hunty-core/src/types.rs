@@ -195,6 +195,7 @@ pub struct HuntCompletedEvent {
     pub player: Address,
     pub total_score: u32,
     pub completion_time: u64,
+    pub completion_rank: u32,
 }
 
 #[contracttype]
