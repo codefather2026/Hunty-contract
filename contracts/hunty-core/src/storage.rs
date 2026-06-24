@@ -466,10 +466,12 @@ impl Storage {
 
     // --- Contract version ---
 
+    #[allow(dead_code)]
     pub fn set_contract_version(env: &Env, version: u32) {
         env.storage().instance().set(&symbol_short!("CVER"), &version);
     }
 
+    #[allow(dead_code)]
     pub fn get_contract_version(env: &Env) -> Option<u32> {
         env.storage().instance().get(&symbol_short!("CVER"))
     }

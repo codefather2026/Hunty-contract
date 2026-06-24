@@ -30,6 +30,39 @@ fn image_uri_is_valid(_uri: &String) -> bool {
     true
 }
 
+fn string_to_bytes<const N: usize>(value: &String) -> Option<([u8; N], usize)> {
+    let len = value.len() as usize;
+    if len > N {
+        return None;
+    }
+
+    let mut buf = [0u8; N];
+    value.copy_into_slice(&mut buf[..len]);
+    Some((buf, len))
+}
+
+fn replace_prefix(env: &Env, value: &String, old_prefix: &String, new_prefix: &String) -> Option<String> {
+    let (value_buf, value_len) = string_to_bytes::<4096>(value)?;
+    let (old_buf, old_len) = string_to_bytes::<4096>(old_prefix)?;
+    let (new_buf, new_len) = string_to_bytes::<4096>(new_prefix)?;
+
+    if value_len < old_len || value_buf[..old_len] != old_buf[..old_len] {
+        return None;
+    }
+
+    let suffix_len = value_len - old_len;
+    let total_len = new_len + suffix_len;
+    if total_len > 4096 {
+        return None;
+    }
+
+    let mut out = [0u8; 4096];
+    out[..new_len].copy_from_slice(&new_buf[..new_len]);
+    out[new_len..total_len].copy_from_slice(&value_buf[old_len..value_len]);
+    let updated = core::str::from_utf8(&out[..total_len]).ok()?;
+    Some(String::from_str(env, updated))
+}
+
 /// Complete metadata returned by get_nft_metadata (includes NftData-derived fields).
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -386,13 +419,12 @@ impl NftReward {
 
         for nft_id in 1..=total {
             if let Some(mut nft) = Storage::get_nft(&env, nft_id) {
-                let uri = nft.metadata.image_uri.clone();
-                let uri_str = uri.as_str();
-
-                if uri_str.starts_with(old_prefix.as_str()) {
-                    let suffix = uri_str.strip_prefix(old_prefix.as_str()).unwrap_or("");
-                    let new_uri = String::from_str(&env, new_prefix.as_str())
-                        .concat(&String::from_str(&env, suffix));
+                if let Some(new_uri) = replace_prefix(
+                    &env,
+                    &nft.metadata.image_uri,
+                    &old_prefix,
+                    &new_prefix,
+                ) {
                     nft.metadata.image_uri = new_uri;
                     Storage::save_nft(&env, &nft);
                     updated += 1;
