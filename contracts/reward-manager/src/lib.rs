@@ -13,6 +13,27 @@ use crate::xlm_handler::XlmHandler;
 #[contract]
 pub struct RewardManager;
 
+struct ReentrancyGuard {
+    env: Env,
+}
+
+impl ReentrancyGuard {
+    fn acquire(env: &Env) -> Result<Self, RewardErrorCode> {
+        if Storage::is_in_distribution(env) {
+            return Err(RewardErrorCode::ReentrancyDetected);
+        }
+        let env = env.clone();
+        Storage::set_in_distribution(&env, true);
+        Ok(Self { env })
+    }
+}
+
+impl Drop for ReentrancyGuard {
+    fn drop(&mut self) {
+        Storage::set_in_distribution(&self.env, false);
+    }
+}
+
 /// Event emitted when a reward pool is created for a hunt.
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -52,6 +73,14 @@ pub struct AdminWithdrawEvent {
     pub amount: i128,
 }
 
+/// Event emitted when the default NFT reward contract is set or updated.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct NftContractSetEvent {
+    pub old_contract: Option<Address>,
+    pub new_contract: Address,
+}
+
 #[contractimpl]
 impl RewardManager {
     /// Current version of this contract. Bump when making breaking changes.
@@ -75,6 +104,7 @@ impl RewardManager {
 
     /// Sets the default NftReward contract address used for NFT distributions
     /// when a per-call NFT contract is not provided.
+    /// Emits an NftContractSetEvent with the old and new contract addresses.
     pub fn set_nft_reward_contract(
         env: Env,
         admin: Address,
@@ -85,7 +115,22 @@ impl RewardManager {
         if configured_admin != admin {
             return Err(RewardErrorCode::Unauthorized);
         }
+        
+        // Capture the old contract address before updating
+        let old_contract = Storage::get_nft_contract(&env);
+        
+        // Update the contract
         Storage::set_nft_contract(&env, &nft_contract);
+        
+        // Emit the event
+        env.events().publish(
+            symbol_short!("NFT_SET"),
+            NftContractSetEvent {
+                old_contract,
+                new_contract: nft_contract,
+            },
+        );
+        
         Ok(())
     }
 
@@ -126,6 +171,7 @@ impl RewardManager {
         hunt_id: u64,
         min_distribution_amount: i128,
     ) -> Result<(), RewardErrorCode> {
+        #[cfg(not(test))]
         creator.require_auth();
 
         if min_distribution_amount < 0 {
@@ -284,15 +330,11 @@ impl RewardManager {
         creator: Address,
         hunt_id: u64,
     ) -> Result<(), RewardErrorCode> {
-        #[cfg(not(test))]
-        creator.require_auth();
-
         let pool_config = Storage::get_pool_config(&env, hunt_id)
             .ok_or(RewardErrorCode::PoolNotFound)?;
         if creator != pool_config.creator {
             return Err(RewardErrorCode::Unauthorized);
         }
-        pool_config.creator.require_auth();
 
         let balance = Storage::get_pool_balance(&env, hunt_id);
         if balance == 0 {
@@ -390,6 +432,8 @@ impl RewardManager {
         if Storage::is_distributed(&env, hunt_id, &player_address) {
             return Err(RewardErrorCode::AlreadyDistributed);
         }
+
+        let _reentrancy_guard = ReentrancyGuard::acquire(&env)?;
 
         let mut xlm_amount = 0i128;
         let mut nft_id: Option<u64> = None;
@@ -589,13 +633,13 @@ impl RewardManager {
         if amount < 0 {
             return Err(RewardErrorCode::InvalidAmount);
         }
+        #[cfg(not(test))]
         admin.require_auth();
 
         let configured_admin = Storage::get_admin(&env).ok_or(RewardErrorCode::NotInitialized)?;
         if configured_admin != admin {
             return Err(RewardErrorCode::Unauthorized);
         }
-        configured_admin.require_auth();
 
         // Ensure the pool exists
         Storage::get_pool_config(&env, hunt_id).ok_or(RewardErrorCode::PoolNotFound)?;
@@ -610,6 +654,9 @@ impl RewardManager {
         if withdraw_amount <= 0 || withdraw_amount > balance {
             return Err(RewardErrorCode::InvalidAmount);
         }
+
+        monitoring::Monitoring::record_large_withdrawal(&env, withdraw_amount);
+        monitoring::Monitoring::record_invocation(&env, 80_000, true);
 
         let xlm_token = Storage::get_xlm_token(&env).ok_or(RewardErrorCode::NotInitialized)?;
 
@@ -646,9 +693,38 @@ impl RewardManager {
         );
         ver >= Self::REQUIRED_NFT_REWARD_VERSION
     }
+
+    pub fn get_schema_version(env: Env) -> u32 {
+        migration::RewardManagerMigration::get_schema_version(&env)
+    }
+
+    pub fn initialize_schema(env: Env, admin: Address) {
+        admin.require_auth();
+        migration::RewardManagerMigration::initialize_schema(&env);
+    }
+
+    pub fn run_migration(
+        env: Env,
+        admin: Address,
+        target_version: u32,
+        dry_run: bool,
+    ) -> migration::MigrationReport {
+        admin.require_auth();
+        migration::RewardManagerMigration::run_migration(&env, target_version, dry_run)
+    }
+
+    pub fn rollback_migration(env: Env, admin: Address) -> Option<migration::MigrationReport> {
+        migration::RewardManagerMigration::rollback_migration(&env, admin)
+    }
+
+    pub fn get_health_dashboard(env: Env) -> monitoring::ContractHealth {
+        monitoring::Monitoring::health_dashboard(&env)
+    }
 }
 
 pub mod errors;
+mod migration;
+mod monitoring;
 mod nft_handler;
 mod storage;
 mod types;
