@@ -30,6 +30,15 @@ fn image_uri_is_valid(_uri: &String) -> bool {
     true
 }
 
+/// Collection-level statistics included in mint events for indexers.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NftCollectionStats {
+    pub total_supply: u64,
+    pub total_hunts: u64,
+    pub total_owners: u64,
+}
+
 /// Complete metadata returned by get_nft_metadata (includes NftData-derived fields).
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -64,7 +73,7 @@ pub struct NftData {
 
 /// Event emitted when an NFT is minted.
 #[contracttype]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NftMintedEvent {
     pub nft_id: u64,
     pub hunt_id: u64,
@@ -72,12 +81,25 @@ pub struct NftMintedEvent {
     pub rarity: u32,
     pub tier: u32,
     pub metadata: NftMetadata,
+    pub hunt_title: String,
+    pub total_minted_for_hunt: u64,
+    pub completion_rank: u32,
+    pub collection_stats: NftCollectionStats,
     pub minted_at: u64,
+}
+
+/// Event emitted when an operator approval changes.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OperatorChangedEvent {
+    pub owner: Address,
+    pub operator: Address,
+    pub approved: bool,
 }
 
 /// Event emitted when an NFT is transferred.
 #[contracttype]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NftTransferredEvent {
     pub nft_id: u64,
     pub from: Address,
@@ -86,7 +108,7 @@ pub struct NftTransferredEvent {
 
 /// Event emitted when an NFT's mutable metadata is updated.
 #[contracttype]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NftMetadataUpdatedEvent {
     pub nft_id: u64,
     pub updater: Address,
@@ -94,7 +116,7 @@ pub struct NftMetadataUpdatedEvent {
 
 /// Event emitted when admin batch-updates image URIs across NFTs.
 #[contracttype]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AdminImageUrisUpdatedEvent {
     pub old_prefix: String,
     pub new_prefix: String,
@@ -126,7 +148,7 @@ impl NftReward {
         admin.require_auth();
         Storage::save_admin(&env, &admin);
         Storage::set_max_supply(&env, max_supply);
-        Storage::set_contract_version(&env, Self::CONTRACT_VERSION);
+        Storage::set_contract_version(&env, 1);
         Ok(())
     }
 
@@ -284,6 +306,7 @@ impl NftReward {
             nft_id,
             hunt_id,
             owner: player_address.clone(),
+            completion_player: player_address.clone(),
             metadata: metadata.clone(),
             transferable,
             minted_at,
@@ -291,6 +314,7 @@ impl NftReward {
 
         Storage::save_nft(&env, &nft_data);
         Storage::add_nft_to_owner(&env, &player_address, nft_id);
+        Storage::mark_hunt_minted(&env, hunt_id);
 
         let event = NftMintedEvent {
             nft_id,
@@ -298,7 +322,15 @@ impl NftReward {
             owner: player_address,
             rarity: metadata.rarity,
             tier: metadata.tier,
-            metadata,
+            metadata: metadata.clone(),
+            hunt_title: metadata.hunt_title.clone(),
+            total_minted_for_hunt: Storage::get_nft_count_for_hunt(&env, hunt_id),
+            completion_rank: Storage::get_nft_count_for_hunt(&env, hunt_id) as u32,
+            collection_stats: NftCollectionStats {
+                total_supply: Storage::get_nft_counter(&env),
+                total_hunts: Storage::get_total_hunts(&env),
+                total_owners: Storage::get_total_owners(&env),
+            },
             minted_at,
         };
         env.events()
@@ -344,7 +376,7 @@ impl NftReward {
         reward_manager: Address,
     ) -> Result<(), crate::errors::NftErrorCode> {
         Self::require_admin(&env, &admin)?;
-        Storage::save_reward_manager(&env, &reward_manager);
+        Storage::set_reward_manager(&env, &reward_manager);
         Ok(())
     }
 
@@ -375,12 +407,11 @@ impl NftReward {
         for nft_id in 1..=total {
             if let Some(mut nft) = Storage::get_nft(&env, nft_id) {
                 let uri = nft.metadata.image_uri.clone();
-                let uri_str = uri.as_str();
+                let uri_str = uri.to_string();
 
-                if uri_str.starts_with(old_prefix.as_str()) {
-                    let suffix = uri_str.strip_prefix(old_prefix.as_str()).unwrap_or("");
-                    let new_uri = String::from_str(&env, new_prefix.as_str())
-                        .concat(&String::from_str(&env, suffix));
+                if uri_str.starts_with(&old_prefix.to_string()) {
+                    let suffix = uri_str.strip_prefix(&old_prefix.to_string()).unwrap_or("");
+                    let new_uri = String::from_str(&env, &format!("{}{}", new_prefix.to_string(), suffix));
                     nft.metadata.image_uri = new_uri;
                     Storage::save_nft(&env, &nft);
                     updated += 1;
@@ -632,7 +663,7 @@ impl NftReward {
 
     /// Returns the on-chain version stored during initialize, or the compiled constant.
     pub fn contract_version(env: Env) -> u32 {
-        Storage::get_contract_version(&env).unwrap_or(Self::CONTRACT_VERSION)
+        Storage::get_contract_version(&env).unwrap_or(1)
     }
 
     /// Grants `operator` the ability to manage all NFTs owned by `owner`.

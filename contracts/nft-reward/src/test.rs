@@ -1,10 +1,10 @@
 #![cfg(test)]
 extern crate std;
 
-use crate::{NftMetadata, NftReward, NftRewardClient};
+use crate::{NftMetadata, NftMintedEvent, NftReward, NftRewardClient};
 use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger as _},
-    Address, Env, IntoVal, Map, String, Symbol, Val, Vec,
+    Address, Env, IntoVal, Map, String, Symbol, TryFromVal, Val,
 };
 
 fn setup_env() -> Env {
@@ -218,9 +218,16 @@ fn test_nft_minted_event() {
 
     let events = env.events().all();
     assert!(!events.is_empty());
-    // Last event should be NftMinted
-    let (_contract, topics, _data) = events.get(events.len() - 1).unwrap();
+    let (_contract, topics, data) = events.get(events.len() - 1).unwrap();
     assert_eq!(topics.len(), 2); // "NftMinted" + nft_id
+
+    let event: NftMintedEvent = NftMintedEvent::try_from_val(&env, &data).unwrap();
+    assert_eq!(event.hunt_title, metadata.hunt_title);
+    assert_eq!(event.total_minted_for_hunt, 1);
+    assert_eq!(event.completion_rank, 1);
+    assert_eq!(event.collection_stats.total_supply, 1);
+    assert_eq!(event.collection_stats.total_hunts, 1);
+    assert_eq!(event.collection_stats.total_owners, 1);
 }
 
 #[test]
@@ -240,7 +247,7 @@ fn test_multiple_nfts_can_be_minted() {
     ];
     let uris = ["ipfs://hunt1", "ipfs://hunt2", "ipfs://hunt3", "ipfs://hunt4", "ipfs://hunt5"];
 
-    let mut ids = soroban_sdk::Vec::new(&env);
+    let mut ids = soroban_sdk::Vec::<u64>::new(&env);
     for i in 0..5 {
         let metadata = create_metadata(&env, titles[i], descs[i], uris[i]);
         let nft_id = client.mint_reward_nft(&player, &(i as u64 + 1), &player, &metadata);
@@ -424,7 +431,7 @@ fn test_transfer_nft_requires_auth() {
     let _nft_id = client.mint_reward_nft(&from, &1, &from, &metadata);
 
     // This should fail - from has not authorized
-    client.transfer_nft(&1, &from, &to);
+    client.transfer_nft(&1, &from, &to, &from);
 }
 
 #[test]
@@ -480,7 +487,7 @@ fn test_transfer_nft_emits_event() {
     let metadata = create_metadata(&env, "Event NFT", "Desc", "ipfs://event");
 
     let nft_id = mint_transferable(&env, &client, 1, &from, &metadata);
-    client.transfer_nft(&nft_id, &from, &to);
+    client.transfer_nft(&nft_id, &from, &to, &from);
 
     // Transfer succeeded; NftTransferred event is emitted by transfer_nft
     assert_eq!(client.owner_of(&nft_id), Some(to));

@@ -13,6 +13,8 @@ impl Storage {
     const ADMIN_KEY: soroban_sdk::Symbol = symbol_short!("ADMIN");
     const MINTER_KEY: soroban_sdk::Symbol = symbol_short!("MNTR");
     const REWARD_MGR_KEY: soroban_sdk::Symbol = symbol_short!("RWDMGR");
+    const TOTAL_HUNTS_KEY: soroban_sdk::Symbol = symbol_short!("THUNTS");
+    const TOTAL_OWNERS_KEY: soroban_sdk::Symbol = symbol_short!("TOWNRS");
 
     fn nft_key(nft_id: u64) -> (soroban_sdk::Symbol, u64) {
         (Self::NFT_KEY, nft_id)
@@ -32,6 +34,10 @@ impl Storage {
 
     fn minter_key(minter: &Address) -> (soroban_sdk::Symbol, Address) {
         (Self::MINTER_KEY, minter.clone())
+    }
+
+    fn operator_key(owner: &Address, operator: &Address) -> (soroban_sdk::Symbol, Address, Address) {
+        (symbol_short!("OPRT"), owner.clone(), operator.clone())
     }
 
     pub fn remove_nft(env: &Env, nft_id: u64) {
@@ -108,6 +114,48 @@ impl Storage {
             .unwrap_or(0)
     }
 
+    pub fn get_nft_count_for_hunt(env: &Env, hunt_id: u64) -> u64 {
+        let counter = Self::get_nft_counter(env);
+        let mut count = 0u64;
+        for nft_id in 1..=counter {
+            if let Some(nft) = Self::get_nft(env, nft_id) {
+                if nft.hunt_id == hunt_id {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
+    pub fn mark_hunt_minted(env: &Env, hunt_id: u64) {
+        let hunt_key = (symbol_short!("HMNT"), hunt_id);
+        if !env.storage().persistent().has(&hunt_key) {
+            env.storage().persistent().set(&hunt_key, &());
+            let current_total: u64 = env
+                .storage()
+                .persistent()
+                .get(&Self::TOTAL_HUNTS_KEY)
+                .unwrap_or(0);
+            env.storage()
+                .persistent()
+                .set(&Self::TOTAL_HUNTS_KEY, &(current_total + 1));
+        }
+    }
+
+    pub fn get_total_hunts(env: &Env) -> u64 {
+        env.storage()
+            .persistent()
+            .get(&Self::TOTAL_HUNTS_KEY)
+            .unwrap_or(0)
+    }
+
+    pub fn get_total_owners(env: &Env) -> u64 {
+        env.storage()
+            .persistent()
+            .get(&Self::TOTAL_OWNERS_KEY)
+            .unwrap_or(0)
+    }
+
     pub fn set_max_supply(env: &Env, max_supply: Option<u64>) {
         env.storage()
             .persistent()
@@ -143,6 +191,17 @@ impl Storage {
             .set(&Self::owner_nft_entry_key(owner, count), &nft_id);
         env.storage().persistent().set(&count_key, &(count + 1));
         env.storage().persistent().set(&exist_key, &());
+
+        if count == 0 {
+            let current_total: u64 = env
+                .storage()
+                .persistent()
+                .get(&Self::TOTAL_OWNERS_KEY)
+                .unwrap_or(0);
+            env.storage()
+                .persistent()
+                .set(&Self::TOTAL_OWNERS_KEY, &(current_total + 1));
+        }
     }
 
     /// Returns all minted NFT IDs by iterating from 1 to the current counter.
@@ -188,13 +247,6 @@ impl Storage {
     pub fn is_operator(env: &Env, owner: &Address, operator: &Address) -> bool {
         let key = Self::operator_key(owner, operator);
         env.storage().persistent().get(&key).unwrap_or(false)
-    }
-
-    /// Returns the reward manager address (used for cross-contract auth).
-    pub fn get_reward_manager(env: &Env) -> Option<Address> {
-        env.storage()
-            .instance()
-            .get(&symbol_short!("RWMGR"))
     }
 
     // --- Contract version ---
