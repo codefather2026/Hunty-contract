@@ -828,6 +828,7 @@ impl Storage {
             .instance()
             .get(&Self::GLOBAL_VIEW_ONLY_KEY)
             .unwrap_or_else(|| Vec::new(env))
+    }
 
     // ========== Ban Storage Functions ==========
 

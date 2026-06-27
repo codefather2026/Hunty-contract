@@ -25,6 +25,24 @@ mod test {
         env.as_contract(&contract_id, || f(env, &contract_id))
     }
 
+    fn find_hunt_status_changed_event(env: &Env) -> Option<HuntStatusChangedEvent> {
+        let expected_topic = Symbol::new(env, "HuntStatusChanged").into_val(env);
+        let events = env.events().all();
+        let mut idx = 0;
+        while idx < events.len() {
+            let event = events.get(idx).unwrap();
+            let topics = &event.1;
+            if topics.len() > 0 {
+                let topic = topics.get(0).unwrap();
+                if *topic == expected_topic {
+                    return HuntStatusChangedEvent::try_from_val(env, &event.2).ok();
+                }
+            }
+            idx += 1;
+        }
+        None
+    }
+
     /// Runs a closure in the given contract's context. Use when multiple invocations must share
     /// the same storage; call once per step that uses require_auth (Soroban allows one auth per frame).
     fn as_core_contract<T>(env: &Env, contract_id: &Address, f: impl FnOnce(&Env) -> T) -> T {
@@ -1285,6 +1303,36 @@ mod test {
     }
 
     #[test]
+    fn test_activate_hunt_end_time_in_past() {
+        let env = Env::default();
+        env.ledger().set_timestamp(1_700_000_000);
+        env.mock_all_auths();
+        let creator = Address::generate(&env);
+
+        let question = String::from_str(&env, "Valid question");
+        let answer = String::from_str(&env, "a");
+
+        with_core_contract(&env, |env, _cid| {
+            // Create a hunt with end_time in the past
+            let hunt_id = HuntyCore::create_hunt(
+                env.clone(),
+                creator.clone(),
+                String::from_str(env, "Expired Hunt"),
+                String::from_str(env, "This hunt has an end_time in the past"),
+                Some(1_699_999_999), // end_time < current_time (1_700_000_000)
+                None,
+                0,
+            )
+            .unwrap();
+
+            HuntyCore::add_clue(env.clone(), hunt_id, question, answer, 1, true).unwrap();
+
+            let err = HuntyCore::activate_hunt(env.clone(), hunt_id, creator.clone()).unwrap_err();
+            assert_eq!(err, HuntErrorCode::HuntEndTimeInPast);
+        });
+    }
+
+    #[test]
     fn test_deactivate_hunt_success() {
         let env = Env::default();
         env.ledger().set_timestamp(1_700_000_000);
@@ -1403,6 +1451,13 @@ mod test {
 
             let hunt = Storage::get_hunt(env, hunt_id).unwrap();
             assert_eq!(hunt.status, HuntStatus::Cancelled);
+
+            let status_event = find_hunt_status_changed_event(&env)
+                .expect("expected HuntStatusChanged event after cancellation");
+            assert_eq!(status_event.hunt_id, hunt_id);
+            assert_eq!(status_event.old_status, HuntStatus::Active);
+            assert_eq!(status_event.new_status, HuntStatus::Cancelled);
+            assert!(status_event.changed_at > 0);
         });
     }
 
