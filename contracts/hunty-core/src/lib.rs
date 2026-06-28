@@ -88,6 +88,11 @@ impl HuntyCore {
         let current_time = env.ledger().timestamp();
         rate_limit::RateLimiter::check_and_increment(&env, &creator, current_time)?;
 
+        // Check creator is not blacklisted
+        if Storage::is_blacklisted(&env, &creator) {
+            return Err(HuntErrorCode::CreatorBlacklisted);
+        }
+
         // Get current timestamp
 
         // Generate unique hunt ID
@@ -506,6 +511,52 @@ impl HuntyCore {
     /// Sets the RewardManager contract address for cross-contract reward distribution.
     pub fn set_reward_manager(env: Env, reward_manager: Address) {
         Storage::set_reward_manager(&env, &reward_manager);
+    }
+
+    /// Sets the admin address. Can only be called once (to initialize).
+    /// Subsequent calls require current admin authorization.
+    pub fn set_admin(env: Env, new_admin: Address) {
+        if let Some(current) = Storage::get_admin(&env) {
+            current.require_auth();
+        }
+        Storage::set_admin(&env, &new_admin);
+    }
+
+    /// Blacklists a creator address, preventing them from creating new hunts.
+    /// Caller must be the admin.
+    pub fn blacklist_creator(env: Env, admin: Address, creator: Address) -> Result<(), HuntErrorCode> {
+        admin.require_auth();
+        let stored_admin = Storage::get_admin(&env).ok_or(HuntErrorCode::Unauthorized)?;
+        if admin != stored_admin {
+            return Err(HuntErrorCode::Unauthorized);
+        }
+        Storage::blacklist_creator(&env, &creator);
+        env.events().publish(
+            (Symbol::new(&env, "CreatorBlacklisted"), creator.clone()),
+            CreatorBlacklistedEvent { creator, admin },
+        );
+        Ok(())
+    }
+
+    /// Removes a creator from the blacklist, restoring their ability to create hunts.
+    /// Caller must be the admin.
+    pub fn remove_from_blacklist(env: Env, admin: Address, creator: Address) -> Result<(), HuntErrorCode> {
+        admin.require_auth();
+        let stored_admin = Storage::get_admin(&env).ok_or(HuntErrorCode::Unauthorized)?;
+        if admin != stored_admin {
+            return Err(HuntErrorCode::Unauthorized);
+        }
+        Storage::remove_from_blacklist(&env, &creator);
+        env.events().publish(
+            (Symbol::new(&env, "CreatorRemovedFromBlacklist"), creator.clone()),
+            CreatorRemovedFromBlacklistEvent { creator, admin },
+        );
+        Ok(())
+    }
+
+    /// Returns true if the given address is blacklisted.
+    pub fn is_blacklisted(env: Env, creator: Address) -> bool {
+        Storage::is_blacklisted(&env, &creator)
     }
 
     /// Completes a hunt for a player and distributes rewards.
